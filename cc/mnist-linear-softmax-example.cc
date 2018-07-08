@@ -37,6 +37,8 @@ Options parse_options(int argc, char **argv) {
     return options;
 }
 
+/* A simple struct to hold a bunch of labelled
+ * istreams. Move-only. */
 struct MNISTFiles {
     MNISTFiles(std::ifstream &&train_images,
                std::ifstream &&train_labels,
@@ -62,6 +64,13 @@ struct MNISTFiles {
     
 };
 
+/* A variadic template which is applied recursively to
+ * its arguments until the non-variadic base case is hit.
+ *
+ * Calls operator<<(stringstream &, String &) on each of
+ * its arguments left to right, then returns the resulting
+ * string. Basically allows us to perform very fast string
+ * joins without having to allocate a temporary string vector. */
 namespace detail {
     template<typename String>
     void join_strings(std::stringstream &stream, String &&str)
@@ -103,6 +112,9 @@ MNISTFiles find_files_in_directory(std::string const &data_dir) {
                                     std::ifstream::in | std::ifstream::binary));
 }
 
+/* Given an unsigned value index in range (0, size), return
+ * a vector[size] with vector[index] = 1 and all other
+ * elements equal to zero. */
 std::vector<float_t>
 one_hot_encode (size_t index, size_t size)
 {
@@ -113,6 +125,7 @@ one_hot_encode (size_t index, size_t size)
     return vec;
 }
 
+/* Convert from big-endian to little-endian */
 int32_t read_int32_byteswap(std::ifstream &stream) {
     int32_t location;
     stream.read(reinterpret_cast<char *>(&location), sizeof(int32_t));
@@ -127,6 +140,26 @@ int32_t read_int32_byteswap(std::ifstream &stream) {
     return result;
 }
 
+/**
+ * parse_idx1_one_hot:
+ * @stream: A std::ifstream& open in binary mode.
+ *
+ * Parse the MNIST idx1 file format.
+ *
+ * The file is big-endian byte-ordered and the format
+ * goes something like this:
+ *   0000 uint32_t magic (0x00000801)
+ *   0004 uint32_t n_items
+ *   0008 char     label
+ *   0008 char     label2
+ *   ....
+ *   xxxx char     labeln
+ *
+ * "label[n]" falls between 0 and 10, but we one-hot encode
+ * it so that it can be represented as a discrete probability
+ * density function (eg, put a "1" in the index of the image
+ * class).
+ */
 std::vector<tf::Tensor>
 parse_idx1_one_hot(std::ifstream &stream) {
     static const uint32_t EXPECTED_MAGIC = 0x00000801;
@@ -158,6 +191,25 @@ parse_idx1_one_hot(std::ifstream &stream) {
     return idx1_tensors;
 }
 
+/**
+ * parse_idx1_one_hot:
+ * @stream: A std::ifstream& open in binary mode.
+ *
+ * Parse the MNIST idx3 file format.
+ *
+ * The file is big-endian byte-ordered and the format
+ * goes something like this:
+ *   0000                         uint32_t magic (0x00000801)
+ *   0004                         uint32_t n_items
+ *   0008                         uint32_t img_rows
+ *   0012                         uint32_t img_cols
+ *   0016                         char     pixel (img 0, row 0, col 0)
+ *   0017                         char     pixel (img 0, row 0, col 1)
+ *   0016 + img_cols              char     pixel (img 0, row 1, col 0)
+ *   0016 + (img_cols * img_rows) char     pixel (img 1, row 0, col 0)
+ *   ....
+ *   0016 + (img_cols * img_rows) * (n - 1) char pixel (img n, row 0, col 0)
+ */
 std::vector<tf::Tensor>
 parse_idx3(std::ifstream &stream) {
     static const uint32_t EXPECTED_MAGIC = 0x00000803;
